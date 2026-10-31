@@ -1,6 +1,7 @@
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import KeyboardRoundedIcon from "@mui/icons-material/KeyboardRounded";
 import MouseRoundedIcon from "@mui/icons-material/MouseRounded";
+import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import SelectAllRoundedIcon from "@mui/icons-material/SelectAllRounded";
 import { useI18n } from "../../hooks/I18n";
 import { usePopupFeatureToggles } from "./usePopupFeatureToggles";
@@ -9,11 +10,13 @@ const FEATURE_LABELS = {
   selection: "selection_translate",
   hover: "popup_hover_translation",
   input: "input_translate",
+  wordcard: "use_word_card",
 };
 const FEATURE_ICONS = {
   selection: SelectAllRoundedIcon,
   hover: MouseRoundedIcon,
   input: KeyboardRoundedIcon,
+  wordcard: MenuBookRoundedIcon,
 };
 
 /** Independent global preferences remain available when the site is disabled. */
@@ -24,11 +27,13 @@ export default function GlobalFeatures(props) {
     handleTransboxToggle,
     handleMouseHoverToggle,
     handleInputToggle,
+    handleWordCardToggle,
   } = usePopupFeatureToggles(props);
   const actions = {
     selection: handleTransboxToggle,
     hover: handleMouseHoverToggle,
     input: handleInputToggle,
+    wordcard: handleWordCardToggle,
   };
   if (!features.length) return null;
 

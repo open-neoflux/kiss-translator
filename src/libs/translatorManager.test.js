@@ -46,6 +46,8 @@ jest.mock("../config", () => ({
   MSG_POPUP_TOGGLE: "popup-toggle",
   MSG_RULE_EDITOR: "rule-editor",
   MSG_MOUSEHOVER_TOGGLE: "mousehover-toggle",
+  MSG_WORDCARD_TOGGLE: "toggle-wordcard",
+  DEFAULT_MOUSE_HOVER_SETTING: { useWordCard: false },
   MSG_TOUCH_TRANSLATE_MODE_SET: "touch-mode-set",
   MSG_TOUCH_TRANSLATE_STATE: "touch-state",
   MSG_TRANSINPUT_TOGGLE: "transinput-toggle",
@@ -56,6 +58,19 @@ jest.mock("../config", () => ({
   OPT_SHORTCUT_POPUP: "popup",
   OPT_SHORTCUT_SETTING: "setting",
   newI18n: () => (key) => key,
+  DEFAULT_SETTING: { version: 1, transApis: [] },
+  normalizeApiThinkingSettings: (apis) => apis,
+  CURRENT_SETTINGS_VERSION: 5,
+  getSettingVersion: () => 5,
+  migrateSettingToV3: (s) => s,
+  migrateSettingToV5: (s) => s,
+  migrateSettingPromptsToV2: (s) => s,
+  DEFAULT_TRANBOX_SETTING: {},
+  DEFAULT_IMAGE_TRANSLATE_SETTING: {},
+  DEFAULT_MOUSE_HOVER_SETTING: { useWordCard: false },
+  DEFAULT_RULES: [],
+  GLOBLA_RULE: {},
+  DEFAULT_SYNC: {},
 }));
 
 jest.mock("./browser", () => ({
@@ -200,6 +215,22 @@ jest.mock("./iframe", () => ({
   sendIframeMsg: jest.fn(),
 }));
 
+const mockWordCardInstances = [];
+jest.mock("./wordHoverCard", () => ({
+  WordCardController: class {
+    constructor(args) {
+      this.args = args;
+      this.enabled = false;
+      this.destroy = jest.fn();
+      this.updateSetting = jest.fn();
+      this.setEnabled = jest.fn(async (enabled) => {
+        this.enabled = enabled;
+      });
+      mockWordCardInstances.push(this);
+    }
+  },
+}));
+
 jest.mock("./log", () =>
   jest.requireActual("../testUtils/scopedLogMock").withScopedLogMock(
     (() => ({
@@ -233,6 +264,7 @@ function setupMockConstructors() {
         this.rule.transOpen = "false";
       }),
       setTouchMode: jest.fn((mode) => mode),
+      setMouseHoverSetting: jest.fn(),
       rescan: jest.fn(),
       toggle: jest.fn(),
       enable: jest.fn(),
@@ -1898,5 +1930,89 @@ describe("TranslatorManager SPA lifecycle", () => {
     const handler = browser.runtime.onMessage.addListener.mock.calls[0][0];
     handler({ action: "trans-putrule", args: newRule }, {}, jest.fn());
     expect(imageManager.updateRule).toHaveBeenCalledWith(newRule);
+  });
+});
+
+describe("TranslatorManager word card", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    document.documentElement.innerHTML = "<head></head><body></body>";
+    jest.clearAllMocks();
+    browser.runtime.sendMessage.mockReset().mockResolvedValue(12);
+    browser.storage.local.get.mockReset().mockResolvedValue({});
+    mockPopupDocumentIdentity.mockReset();
+    mockPopupDocumentIdentity.mockReturnValue({
+      token: "current-document",
+      url: "https://example.com/page",
+    });
+    mockWordCardInstances.length = 0;
+    mockTranslatorInstances.length = 0;
+    mockPopupInstances.length = 0;
+    activeManagers.length = 0;
+    setupMockConstructors();
+  });
+
+  afterEach(() => {
+    activeManagers.forEach((manager) => manager.stop());
+    activeManagers.length = 0;
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
+  test("creates a disabled word card by default", () => {
+    const manager = createManager();
+    manager.start();
+    const card = manager._wordCard;
+    expect(card).toBeTruthy();
+    expect(card.enabled).toBe(false);
+    expect(card.setEnabled).not.toHaveBeenCalled();
+  });
+
+  test("enables the word card from the runtime snapshot", () => {
+    const manager = createManager({
+      setting: {
+        mouseHoverSetting: { useMouseHover: false, useWordCard: true },
+      },
+    });
+    manager.start();
+    expect(manager._wordCard.setEnabled).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        mouseHoverSetting: expect.objectContaining({ useWordCard: true }),
+      })
+    );
+  });
+
+  test("toggles the word card via the popup message", async () => {
+    const manager = createManager();
+    manager.start();
+    const { processActions } = PopupManager.mock.calls[0][0];
+
+    const response = await processActions({
+      action: "toggle-wordcard",
+      args: { enabled: true },
+    });
+    expect(response.error).toBeUndefined();
+    expect(manager._wordCard.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(manager._wordCard.enabled).toBe(true);
+
+    await processActions({
+      action: "toggle-wordcard",
+      args: { enabled: false },
+    });
+    expect(manager._wordCard.setEnabled).toHaveBeenLastCalledWith(false);
+    expect(manager._wordCard.enabled).toBe(false);
+    expect(manager._translator.setMouseHoverSetting).toHaveBeenLastCalledWith({
+      useWordCard: false,
+    });
+  });
+
+  test("destroys the word card with the runtime modules", () => {
+    const manager = createManager();
+    manager.start();
+    const card = manager._wordCard;
+    manager.stop();
+    expect(card.destroy).toHaveBeenCalled();
+    expect(manager._wordCard).toBeNull();
   });
 });

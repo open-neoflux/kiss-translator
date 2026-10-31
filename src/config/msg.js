@@ -34,6 +34,7 @@ export const MSG_TRANS_CURRULE = "trans_currule"; // 发送当前页面所适配
 export const MSG_TRANSBOX_TOGGLE = "toggle_transbox"; // 切换划词翻译框的显示与隐藏
 export const MSG_POPUP_TOGGLE = "toggle_popup"; // 切换 Popup 弹窗的显隐状态
 export const MSG_MOUSEHOVER_TOGGLE = "toggle_mousehover"; // 切换鼠标悬停翻译功能
+export const MSG_WORDCARD_TOGGLE = "toggle_wordcard"; // 切换单词悬浮查词卡片
 export const MSG_HOVERNODE_TOGGLE = "toggle_hover_node"; // 切换针对某节点的悬浮高亮状态
 export const MSG_TRANSINPUT_TOGGLE = "toggle_input_translation"; // 切换输入框翻译功能
 export const MSG_INPUT_TRANSLATE = "input_translate"; // 触发输入框即时翻译

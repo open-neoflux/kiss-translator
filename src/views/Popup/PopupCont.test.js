@@ -1387,9 +1387,10 @@ describe("PopupCont capability parity", () => {
     });
     try {
       await flushEffects();
+      // hover + input + word card all stay available on a disabled site.
       expect(
         view.container.querySelectorAll(".kt-popup-global-feature")
-      ).toHaveLength(2);
+      ).toHaveLength(3);
       expect(
         view.container
           .querySelector(".kt-popup-global-features")

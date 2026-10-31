@@ -244,6 +244,17 @@ export const OPT_MOUSE_HOVER_TRANS_DISPLAY_BLOCK = "block"; // 按住按键译�
 export const OPT_MOUSE_HOVER_HOLD_BUTTON_LEFT = "left"; // 按住触发使用鼠标左键
 export const OPT_MOUSE_HOVER_HOLD_BUTTON_RIGHT = "right"; // 按住触发使用鼠标右键
 export const DEFAULT_MOUSE_HOVER_HOLD_DELAY = 800; // 按住鼠标按键多久后触发悬停翻译 (毫秒)
+export const DEFAULT_WORD_CARD_DELAY = 400; // 鼠标停留在单词上多久后弹出查词卡片 (毫秒)
+// 单词卡片发音来源：优先使用词典附带的真人录音；系统合成作为可选兜底。
+export const OPT_WORD_CARD_SPEECH_AUDIO = "audio"; // 真人录音（推荐）
+export const OPT_WORD_CARD_SPEECH_SYSTEM = "system"; // 系统语音合成
+export const OPT_WORD_CARD_SPEECH_AUTO = "auto"; // 优先录音，无录音时回退系统合成
+export const DEFAULT_WORD_CARD_SPEECH = OPT_WORD_CARD_SPEECH_AUDIO;
+export const WORD_CARD_SPEECH_OPTIONS = [
+  OPT_WORD_CARD_SPEECH_AUDIO,
+  OPT_WORD_CARD_SPEECH_AUTO,
+  OPT_WORD_CARD_SPEECH_SYSTEM,
+];
 export const DEFAULT_MOUSE_HOVER_BUBBLE_STYLE = `max-width: min(420px, calc(100vw - 32px));
 padding: 10px 12px;
 border-radius: 8px;
@@ -272,6 +283,11 @@ export const DEFAULT_MOUSE_HOVER_SETTING = {
   displayMode: OPT_MOUSE_HOVER_DISPLAY_BILINGUAL, // 鼠标悬停翻译展示模式
   apiSlug: GLOBAL_KEY, // 气泡模式翻译接口，默认跟随当前网页规则
   bubbleStyle: DEFAULT_MOUSE_HOVER_BUBBLE_STYLE, // 气泡模式的容器 CSS
+  useWordCard: false, // 是否开启网页内的单词悬浮查词卡片
+  wordCardDelay: DEFAULT_WORD_CARD_DELAY, // 鼠标停留在单词上多久后弹出卡片 (毫秒)
+  wordCardDict: OPT_DICT_BING, // 单词卡片的词典数据源
+  wordCardSpeech: DEFAULT_WORD_CARD_SPEECH, // 发音来源：录音 / 自动 / 系统合成
+  wordCardVoice: "", // 系统语音音色名（空串 = 跟随系统默认音色）
 };
 
 export const DEFAULT_FILE_TRANSLATE_SETTING = {

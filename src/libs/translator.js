@@ -5880,6 +5880,14 @@ overflow-wrap: anywhere !important;`;
     return { ...this.#setting };
   }
 
+  // 仅用于运行期与设置相关的少量开关同步（如单词卡片状态），不持久化。
+  setMouseHoverSetting(patch = {}) {
+    this.#setting = {
+      ...this.#setting,
+      mouseHoverSetting: { ...this.#setting.mouseHoverSetting, ...patch },
+    };
+  }
+
   get rule() {
     return { ...this.#rule };
   }

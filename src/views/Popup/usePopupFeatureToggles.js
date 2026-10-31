@@ -9,6 +9,7 @@ import {
   MSG_MOUSEHOVER_TOGGLE,
   MSG_TRANSBOX_TOGGLE,
   MSG_TRANSINPUT_TOGGLE,
+  MSG_WORDCARD_TOGGLE,
 } from "../../config";
 import { useSetting } from "../../hooks/Setting";
 import { logger } from "../../libs/log";
@@ -36,6 +37,13 @@ const FEATURES = [
     child: "inputRule",
     field: "transOpen",
     action: MSG_TRANSINPUT_TOGGLE,
+  },
+  {
+    name: "wordcard",
+    capability: "hoverTranslation",
+    child: "mouseHoverSetting",
+    field: "useWordCard",
+    action: MSG_WORDCARD_TOGGLE,
   },
 ];
 
@@ -291,5 +299,6 @@ export function usePopupFeatureToggles({
     handleTransboxToggle: (enabled) => toggleFeature("selection", enabled),
     handleMouseHoverToggle: (enabled) => toggleFeature("hover", enabled),
     handleInputToggle: (enabled) => toggleFeature("input", enabled),
+    handleWordCardToggle: (enabled) => toggleFeature("wordcard", enabled),
   };
 }

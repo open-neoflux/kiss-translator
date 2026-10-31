@@ -40,12 +40,16 @@ import {
   MSG_POPUP_TOGGLE,
   MSG_RULE_EDITOR,
   MSG_MOUSEHOVER_TOGGLE,
+  MSG_WORDCARD_TOGGLE,
   MSG_TRANSINPUT_TOGGLE,
   STOKEY_SETTING,
+  DEFAULT_MOUSE_HOVER_SETTING,
 } from "../config";
 import { logger } from "./log";
 import { getPopupDocumentIdentity } from "./popupDocument";
 import { isSameStorageValue } from "./storageEquality";
+import { getSettingWithDefault } from "./storage";
+import { WordCardController } from "./wordHoverCard";
 import {
   MSG_GET_FRAME_ID,
   MSG_VALIDATE_DOCUMENT,
@@ -112,6 +116,7 @@ export default class TranslatorManager {
   _fabManager = null;
   _ruleEditorManager = null;
   _imageTranslateManager = null;
+  _wordCard = null;
 
   /**
    * 保存启动参数并绑定全局 handler。
@@ -284,6 +289,15 @@ export default class TranslatorManager {
 
     this.#touchMode = this._translator.setTouchMode?.(this.#touchMode) || "off";
 
+    // 单词悬浮查词卡片：跟随运行期设置，在 SPA 重启时按快照重建。
+    this._wordCard = new WordCardController({
+      setting: this.#cloneConfig(this.#setting),
+      isUserscript: this.#isUserscript,
+    });
+    if (this.#setting?.mouseHoverSetting?.useWordCard) {
+      this._wordCard.setEnabled(true, this.#cloneConfig(this.#setting));
+    }
+
     this._transboxManager = new TransboxManager(
       this.#cloneConfig(this.#setting)
     );
@@ -356,6 +370,7 @@ export default class TranslatorManager {
     this._transboxManager?.disable();
     this._inputTranslator?.disable();
     this._translator?.stop();
+    this._wordCard?.destroy();
 
     this._translator = null;
     this._transboxManager = null;
@@ -363,6 +378,7 @@ export default class TranslatorManager {
     this._popupManager = null;
     this._fabManager = null;
     this._imageTranslateManager = null;
+    this._wordCard = null;
   }
 
   /**
@@ -443,6 +459,44 @@ export default class TranslatorManager {
       .finally(() => {
         this.#documentReady = null;
       });
+  }
+
+  /**
+   * 应用单词悬浮查词卡片开关。
+   *
+   * 弹窗/设置页通过 MSG_WORDCARD_TOGGLE 指定目标状态；未指定时切换当前状态。
+   * 每次开启都会重新读取最新设置，确保词典来源与延迟即时生效。
+   */
+  async #applyWordCardToggle(enabled) {
+    if (!this._wordCard) {
+      return { error: "The word card is unavailable in this frame." };
+    }
+    const requested =
+      typeof enabled === "boolean" ? enabled : !this._wordCard.enabled;
+    if (requested) {
+      const setting = await getSettingWithDefault();
+      this._wordCard.updateSetting(setting);
+      this.#setting = {
+        ...this.#setting,
+        mouseHoverSetting: {
+          ...this.#setting?.mouseHoverSetting,
+          useWordCard: true,
+        },
+      };
+      await this._wordCard.setEnabled(true);
+    } else {
+      this.#setting = {
+        ...this.#setting,
+        mouseHoverSetting: {
+          ...this.#setting?.mouseHoverSetting,
+          useWordCard: false,
+        },
+      };
+      await this._wordCard.setEnabled(false);
+    }
+    // 响应来自 Translator 的运行期设置，同步写回让弹窗读到确认后的状态。
+    this._translator?.setMouseHoverSetting?.({ useWordCard: requested });
+    return this.#getRuntimeResponse();
   }
 
   #getRuntimeResponse() {
@@ -704,6 +758,30 @@ export default class TranslatorManager {
       );
   }
 
+  /**
+   * 跟随存储中的设置同步单词卡片：开关、词典来源与弹出延迟都会即时生效。
+   *
+   * runtime feature toggles 只同步 API 列表，但单词卡片没有运行期切换语义，
+   * 以存储值为准，用户在设置页修改后无需刷新页面。
+   */
+  #syncWordCardSetting(setting) {
+    const card = this._wordCard;
+    if (!card) return;
+    const hover = {
+      ...DEFAULT_MOUSE_HOVER_SETTING,
+      ...(this.#setting?.mouseHoverSetting || {}),
+      ...(setting?.mouseHoverSetting || {}),
+    };
+    const enabled = Boolean(hover.useWordCard);
+    this.#setting = {
+      ...this.#setting,
+      uiLang: setting?.uiLang ?? this.#setting?.uiLang,
+      mouseHoverSetting: hover,
+    };
+    card.updateSetting({ ...this.#setting });
+    card.setEnabled(enabled);
+  }
+
   #handleStorageChange(changes, areaName) {
     if (!this.#isActive || areaName !== "local") return;
     if (!Object.prototype.hasOwnProperty.call(changes || {}, STOKEY_SETTING)) {
@@ -736,6 +814,7 @@ export default class TranslatorManager {
       return;
     }
     this._imageTranslateManager?.updateSetting(setting);
+    this.#syncWordCardSetting(setting);
     if (isSameStorageValue(setting.transApis, this.#setting?.transApis)) {
       return;
     }
@@ -831,6 +910,15 @@ export default class TranslatorManager {
           return;
         }
         const result = this.#processActions(message, true);
+        // 单词卡片开关是异步确认的（需要读取最新设置），其余动作保持同步返回。
+        if (result && typeof result.then === "function") {
+          result
+            .then((value) => respond(value || this.#getRuntimeResponse()))
+            .catch((error) =>
+              respond({ error: error?.message || String(error) })
+            );
+          return;
+        }
         respond(result || this.#getRuntimeResponse());
       } catch (error) {
         respond({ error: error?.message || String(error) });
@@ -991,6 +1079,8 @@ export default class TranslatorManager {
         code: "STALE_DOCUMENT",
       };
     }
+    if (action === MSG_WORDCARD_TOGGLE)
+      return this.#applyWordCardToggle(args?.enabled);
     if (action === MSG_TOUCH_TRANSLATE_STATE)
       return { touchTranslate: this.#getTouchState() };
     if (action === MSG_TOUCH_TRANSLATE_MODE_SET) {

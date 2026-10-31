@@ -8,12 +8,19 @@ import ScenePromptSelect from "./ScenePromptSelect";
 import TextField from "@mui/material/TextField";
 import { useMouseHoverSetting } from "../../hooks/MouseHover";
 import { useApiList } from "../../hooks/Api";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
+import { listVoices } from "../../libs/speech";
 import {
   DEFAULT_MOUSEHOVER_KEY,
   DEFAULT_MOUSE_HOVER_BUBBLE_STYLE,
   DEFAULT_MOUSE_HOVER_HOLD_DELAY,
   DEFAULT_MOUSE_HOVER_SETTING,
+  DEFAULT_WORD_CARD_DELAY,
+  DEFAULT_WORD_CARD_SPEECH,
+  OPT_DICT_ALL,
+  OPT_WORD_CARD_SPEECH_AUDIO,
+  OPT_WORD_CARD_SPEECH_AUTO,
+  OPT_WORD_CARD_SPEECH_SYSTEM,
   GLOBAL_KEY,
   OPT_MOUSE_HOVER_DISPLAY_BILINGUAL,
   OPT_MOUSE_HOVER_DISPLAY_BUBBLE,
@@ -31,6 +38,7 @@ import {
   SettingsRow,
   SettingsSection,
   SettingsSegmented,
+  SettingsSelect,
   SettingsSwitch,
 } from "./SettingsCard";
 
@@ -42,6 +50,15 @@ export default function MouseHoverSetting() {
   // Global mouse hover translation settings.
   const { mouseHoverSetting, updateMouseHoverSetting } = useMouseHoverSetting();
   const { enabledApis } = useApiList();
+  // 系统音色列表是异步填充的（getVoices 首次可能为空），voiceschanged 后刷新。
+  const [voices, setVoices] = useState(() => listVoices("en"));
+  useEffect(() => {
+    const synth = globalThis.speechSynthesis;
+    if (!synth?.addEventListener) return undefined;
+    const refresh = () => setVoices(listVoices("en"));
+    synth.addEventListener("voiceschanged", refresh);
+    return () => synth.removeEventListener("voiceschanged", refresh);
+  }, []);
 
   // Update the primary trigger shortcut.
   const handleShortcutInput = useCallback(
@@ -122,9 +139,40 @@ export default function MouseHoverSetting() {
     [updateMouseHoverSetting]
   );
 
+  // 系统语音音色列表：只列出本地音色，首项为“跟随系统默认”。
+  const voiceOptions = useMemo(() => {
+    const defaultVoice = voices.find((voice) => voice.default);
+    return [
+      {
+        value: "",
+        label: i18n(
+          "word_card_voice_default",
+          defaultVoice ? `系统默认（${defaultVoice.name}）` : "系统默认"
+        ),
+      },
+      ...voices
+        .filter((voice) => voice.name !== defaultVoice?.name)
+        .map((voice) => ({ value: voice.name, label: voice.name })),
+    ];
+  }, [i18n, voices]);
+
   const handleBubbleStyleChange = useCallback(
     (e) => {
       updateMouseHoverSetting({ bubbleStyle: e.target.value });
+    },
+    [updateMouseHoverSetting]
+  );
+
+  // 单词卡片：弹出延迟，非法或负值回落到默认值。
+  const handleWordCardDelayChange = useCallback(
+    (e) => {
+      const value = Number(e.target.value);
+      updateMouseHoverSetting({
+        wordCardDelay:
+          Number.isFinite(value) && value >= 0
+            ? value
+            : DEFAULT_WORD_CARD_DELAY,
+      });
     },
     [updateMouseHoverSetting]
   );
@@ -174,6 +222,11 @@ export default function MouseHoverSetting() {
     blacklist = "",
     displayMode = OPT_MOUSE_HOVER_DISPLAY_BILINGUAL,
     bubbleStyle = DEFAULT_MOUSE_HOVER_BUBBLE_STYLE,
+    useWordCard = DEFAULT_MOUSE_HOVER_SETTING.useWordCard,
+    wordCardDelay = DEFAULT_WORD_CARD_DELAY,
+    wordCardDict = DEFAULT_MOUSE_HOVER_SETTING.wordCardDict,
+    wordCardSpeech = DEFAULT_WORD_CARD_SPEECH,
+    wordCardVoice = "",
   } = mouseHoverSetting;
 
   const isRightButtonHold =
@@ -298,6 +351,102 @@ export default function MouseHoverSetting() {
                 }
               />
             </SettingsRow>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title={i18n("use_word_card")}>
+        <SettingsCard>
+          <SettingsRow
+            label={i18n("use_word_card")}
+            description={i18n("use_word_card_help")}
+          >
+            <SettingsSwitch
+              checked={Boolean(useWordCard)}
+              label={i18n("use_word_card")}
+              onChange={(checked) =>
+                updateMouseHoverSetting({ useWordCard: checked })
+              }
+            />
+          </SettingsRow>
+          {useWordCard && (
+            <>
+              <SettingsRow
+                label={i18n("word_card_dict")}
+                description={i18n(
+                  "settings_single_word_dictionary_description"
+                )}
+              >
+                <SettingsSegmented
+                  value={wordCardDict}
+                  label={i18n("word_card_dict")}
+                  onChange={(value) =>
+                    updateMouseHoverSetting({ wordCardDict: value })
+                  }
+                  items={OPT_DICT_ALL.map((dict) => ({
+                    value: dict,
+                    label: dict,
+                  }))}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label={i18n("word_card_delay")}
+                description={i18n("word_card_delay_help")}
+              >
+                <TextField
+                  hiddenLabel
+                  size="small"
+                  variant="filled"
+                  type="number"
+                  value={wordCardDelay}
+                  onChange={handleWordCardDelayChange}
+                  inputProps={{ min: 0, max: 3000, step: 50 }}
+                  sx={{ width: 120 }}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label={i18n("word_card_speech")}
+                description={i18n("word_card_speech_help")}
+              >
+                <SettingsSegmented
+                  value={wordCardSpeech}
+                  label={i18n("word_card_speech")}
+                  onChange={(value) =>
+                    updateMouseHoverSetting({ wordCardSpeech: value })
+                  }
+                  items={[
+                    {
+                      value: OPT_WORD_CARD_SPEECH_AUDIO,
+                      label: i18n("word_card_speech_audio"),
+                    },
+                    {
+                      value: OPT_WORD_CARD_SPEECH_AUTO,
+                      label: i18n("word_card_speech_auto"),
+                    },
+                    {
+                      value: OPT_WORD_CARD_SPEECH_SYSTEM,
+                      label: i18n("word_card_speech_system"),
+                    },
+                  ]}
+                />
+              </SettingsRow>
+              {/* 系统音色：仅在会用到系统合成时提供选择 */}
+              {wordCardSpeech !== OPT_WORD_CARD_SPEECH_AUDIO && (
+                <SettingsRow
+                  label={i18n("word_card_voice")}
+                  description={i18n("word_card_voice_help")}
+                >
+                  <SettingsSelect
+                    value={wordCardVoice}
+                    label={i18n("word_card_voice")}
+                    onChange={(value) =>
+                      updateMouseHoverSetting({ wordCardVoice: value })
+                    }
+                    options={voiceOptions}
+                  />
+                </SettingsRow>
+              )}
+            </>
           )}
         </SettingsCard>
       </SettingsSection>

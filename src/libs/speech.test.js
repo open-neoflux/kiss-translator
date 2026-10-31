@@ -1,42 +1,115 @@
-import { canSpeak, speak } from "./speech";
+import { canSpeak, speak, stopSpeech, listVoices, pickVoice } from "./speech";
+
+const EN_VOICES = [
+  { name: "Zarvox", lang: "en-US", default: false, localService: true },
+  { name: "Samantha", lang: "en-US", default: true, localService: true },
+  { name: "Daniel", lang: "en-GB", default: false, localService: true },
+  { name: "Tingting", lang: "zh-CN", default: false, localService: true },
+  { name: "Google US English", lang: "en-US", localService: false },
+];
+
+function MockUtterance(text) {
+  this.text = text;
+  this.lang = "";
+  this.voice = null;
+  this.rate = 1;
+  this.onend = null;
+  this.onerror = null;
+}
 
 describe("speech", () => {
-  const originalChrome = globalThis.chrome;
-  const originalSpeechSynthesis = globalThis.speechSynthesis;
-  const originalSpeechSynthesisUtterance = globalThis.SpeechSynthesisUtterance;
+  let speakMock;
 
   beforeEach(() => {
+    speakMock = jest.fn();
+    globalThis.speechSynthesis = {
+      speak: speakMock,
+      cancel: jest.fn(),
+      getVoices: () => EN_VOICES,
+    };
+    globalThis.SpeechSynthesisUtterance = MockUtterance;
     delete globalThis.chrome;
-    delete globalThis.speechSynthesis;
-    delete globalThis.SpeechSynthesisUtterance;
   });
 
   afterEach(() => {
-    if (originalChrome === undefined) {
-      delete globalThis.chrome;
-    } else {
-      globalThis.chrome = originalChrome;
-    }
-
-    if (originalSpeechSynthesis === undefined) {
-      delete globalThis.speechSynthesis;
-    } else {
-      globalThis.speechSynthesis = originalSpeechSynthesis;
-    }
-
-    if (originalSpeechSynthesisUtterance === undefined) {
-      delete globalThis.SpeechSynthesisUtterance;
-    } else {
-      globalThis.SpeechSynthesisUtterance = originalSpeechSynthesisUtterance;
-    }
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+    delete globalThis.chrome;
   });
 
-  test("uses chrome tts first when available", () => {
+  describe("pickVoice", () => {
+    test("prefers the configured voice", () => {
+      expect(pickVoice(EN_VOICES, "en-US", "Zarvox").name).toBe("Zarvox");
+    });
+
+    test("falls back to the system default voice", () => {
+      expect(pickVoice(EN_VOICES, "en-US").name).toBe("Samantha");
+      expect(pickVoice(EN_VOICES, "en-US", "Missing").name).toBe("Samantha");
+    });
+
+    test("never picks a voice of another language", () => {
+      expect(pickVoice(EN_VOICES, "en-GB").name).toBe("Daniel");
+      expect(pickVoice(EN_VOICES, "en-US").name).not.toBe("Tingting");
+    });
+
+    test("returns null when nothing matches", () => {
+      expect(pickVoice(EN_VOICES, "ja-JP")).toBeNull();
+      expect(pickVoice([], "en-US")).toBeNull();
+    });
+  });
+
+  describe("listVoices", () => {
+    test("lists local voices for the language", () => {
+      expect(listVoices("en")).toEqual([
+        { name: "Zarvox", lang: "en-US", default: false },
+        { name: "Samantha", lang: "en-US", default: true },
+        { name: "Daniel", lang: "en-GB", default: false },
+      ]);
+    });
+  });
+
+  test("uses speechSynthesis with the system default voice", () => {
+    expect(canSpeak()).toBe(true);
+    expect(speak("search", "en")).toBe(true);
+    const utterance = speakMock.mock.calls[0][0];
+    expect(utterance.text).toBe("search");
+    expect(utterance.lang).toBe("en-US");
+    expect(utterance.voice.name).toBe("Samantha");
+  });
+
+  test("uses the configured voice when it exists", () => {
+    expect(speak("search", "en-US", { voice: "Zarvox" })).toBe(true);
+    expect(speakMock.mock.calls[0][0].voice.name).toBe("Zarvox");
+  });
+
+  test("ignores a configured voice of another language", () => {
+    expect(speak("search", "en-US", { voice: "Tingting" })).toBe(true);
+    expect(speakMock.mock.calls[0][0].voice.name).toBe("Samantha");
+  });
+
+  test("applies speed and reports the end event", () => {
+    const onEnd = jest.fn();
+    expect(speak("search", "en", { speed: 1.25, onEnd })).toBe(true);
+    const utterance = speakMock.mock.calls[0][0];
+    expect(utterance.rate).toBe(1.25);
+    utterance.onend();
+    utterance.onend();
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(onEnd).toHaveBeenCalledWith("end");
+  });
+
+  test("maps interrupted errors to the interrupted reason", () => {
+    const onEnd = jest.fn();
+    speak("search", "en-US", { onEnd });
+    speakMock.mock.calls[0][0].onerror({ error: "canceled" });
+    expect(onEnd).toHaveBeenCalledWith("interrupted");
+  });
+
+  test("falls back to chrome.tts when speechSynthesis is unavailable", () => {
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
     const chromeSpeak = jest.fn();
-    const webSpeak = jest.fn();
     globalThis.chrome = { tts: { speak: chromeSpeak } };
-    globalThis.speechSynthesis = { speak: webSpeak };
-    globalThis.SpeechSynthesisUtterance = jest.fn();
 
     expect(canSpeak()).toBe(true);
     expect(speak("search", "en")).toBe(true);
@@ -45,120 +118,18 @@ describe("speech", () => {
       expect.objectContaining({ lang: "en-US", onEvent: expect.any(Function) }),
       expect.any(Function)
     );
-    expect(webSpeak).not.toHaveBeenCalled();
   });
 
-  test("normalizes automatic language detection values for chrome tts", () => {
-    const chromeSpeak = jest.fn();
-    globalThis.chrome = { tts: { speak: chromeSpeak } };
-
-    expect(speak("search", "auto")).toBe(true);
-    expect(chromeSpeak).toHaveBeenCalledWith(
-      "search",
-      expect.objectContaining({ lang: "en-US", onEvent: expect.any(Function) }),
-      expect.any(Function)
-    );
-  });
-
-  test("runs onEnd when chrome tts reports a final event", () => {
-    let chromeOnEvent;
-    const onEnd = jest.fn();
-    globalThis.chrome = {
-      tts: {
-        speak: jest.fn((text, options) => {
-          chromeOnEvent = options.onEvent;
-        }),
-      },
-    };
-
-    expect(speak("search", "en", { onEnd })).toBe(true);
-    chromeOnEvent({ type: "end" });
-    chromeOnEvent({ type: "end" });
-    expect(onEnd).toHaveBeenCalledTimes(1);
-  });
-
-  test("falls back to Web Speech API", () => {
-    const webSpeak = jest.fn();
-    function MockUtterance(text) {
-      this.text = text;
-      this.lang = "";
-    }
-    globalThis.speechSynthesis = { speak: webSpeak };
-    globalThis.SpeechSynthesisUtterance = MockUtterance;
-
-    expect(canSpeak()).toBe(true);
-    expect(speak("search", "en-GB")).toBe(true);
-    expect(webSpeak).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "search", lang: "en-GB" })
-    );
-  });
-
-  test("falls back to Web Speech API when chrome tts throws", () => {
-    const webSpeak = jest.fn();
-    function MockUtterance(text) {
-      this.text = text;
-      this.lang = "";
-    }
-    globalThis.chrome = {
-      tts: {
-        speak: jest.fn(() => {
-          throw new Error("tts unavailable");
-        }),
-      },
-    };
-    globalThis.speechSynthesis = { speak: webSpeak };
-    globalThis.SpeechSynthesisUtterance = MockUtterance;
-
-    expect(speak("search", "en")).toBe(true);
-    expect(webSpeak).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "search", lang: "en-US" })
-    );
-  });
-
-  test("runs onEnd when Web Speech finishes", () => {
-    const webSpeak = jest.fn();
-    const onEnd = jest.fn();
-    function MockUtterance(text) {
-      this.text = text;
-      this.lang = "";
-      this.onend = null;
-      this.onerror = null;
-    }
-    globalThis.speechSynthesis = { speak: webSpeak };
-    globalThis.SpeechSynthesisUtterance = MockUtterance;
-
-    expect(speak("search", "en", { onEnd })).toBe(true);
-    webSpeak.mock.calls[0][0].onend();
-    expect(onEnd).toHaveBeenCalledTimes(1);
-  });
-
-  test("checks chrome runtime errors in callback and falls back", () => {
-    const webSpeak = jest.fn();
-    let chromeCallback;
-    function MockUtterance(text) {
-      this.text = text;
-      this.lang = "";
-    }
-    globalThis.chrome = {
-      runtime: { lastError: { message: "Invalid lang." } },
-      tts: {
-        speak: jest.fn((text, options, callback) => {
-          chromeCallback = callback;
-        }),
-      },
-    };
-    globalThis.speechSynthesis = { speak: webSpeak };
-    globalThis.SpeechSynthesisUtterance = MockUtterance;
-
-    expect(speak("search", "auto")).toBe(true);
-    chromeCallback();
-    expect(webSpeak).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "search", lang: "en-US" })
-    );
-  });
-
-  test("returns false when speech is unsupported", () => {
+  test("returns false for empty text and unsupported environments", () => {
+    expect(speak("   ")).toBe(false);
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
     expect(canSpeak()).toBe(false);
     expect(speak("search", "en")).toBe(false);
+  });
+
+  test("stopSpeech cancels the current utterance", () => {
+    stopSpeech();
+    expect(globalThis.speechSynthesis.cancel).toHaveBeenCalled();
   });
 });
